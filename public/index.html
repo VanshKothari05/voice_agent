@@ -161,9 +161,7 @@
 <script>
   let mediaRecorder = null, audioChunks = [];
   let isRecording = false, isProcessing = false;
-  let audioEl = null, isPaused = false;
-  let mediaSource = null, sourceBuffer = null;
-  let streamAbort = null;
+  let currentAudio = null, isPaused = false;
 
   const $ = id => document.getElementById(id);
   const orbRing = $('orb-ring'), sdot = $('sdot'), stext = $('stext');
@@ -188,7 +186,6 @@
     $('btn-interrupt').style.display = (state === 'speaking' || state === 'paused') ? 'flex' : 'none';
   }
 
-  // ── recording ────────────────────────────────────────────────
   async function startRecording() {
     if (isRecording || isProcessing) return;
     try {
@@ -211,118 +208,35 @@
   }
 
   function orbClick() {
-    if (audioEl) { interrupt(); return; }
+    if (currentAudio) { interrupt(); return; }
     if (isProcessing) return;
     isRecording ? stopRecording() : startRecording();
   }
 
-  // ── audio controls ───────────────────────────────────────────
   function pauseAudio() {
-    if (!audioEl || isPaused) return;
-    audioEl.pause(); isPaused = true;
+    if (!currentAudio || isPaused) return;
+    currentAudio.pause(); isPaused = true;
     waveform.className = 'waveform';
     setStatus('paused', 'paused');
   }
 
   function resumeAudio() {
-    if (!audioEl || !isPaused) return;
-    audioEl.play(); isPaused = false;
+    if (!currentAudio || !isPaused) return;
+    currentAudio.play(); isPaused = false;
     setStatus('speaking', 'speaking');
   }
 
   function interrupt() {
-    if (streamAbort) { streamAbort.abort(); streamAbort = null; }
-    if (audioEl) { audioEl.pause(); audioEl.src = ''; audioEl = null; }
-    if (mediaSource && mediaSource.readyState === 'open') {
-      try { mediaSource.endOfStream(); } catch(e) {}
-    }
-    mediaSource = null; sourceBuffer = null;
-    isPaused = false; isProcessing = false;
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; isPaused = false; }
+    isProcessing = false;
     setStatus('ready', 'ready');
     setTimeout(() => startRecording(), 100);
   }
 
-  // ── streaming audio via MediaSource ─────────────────────────
- function playStream(response) {
-    return new Promise((resolve) => {
-      mediaSource = new MediaSource();
-      audioEl = new Audio();
-      audioEl.src = URL.createObjectURL(mediaSource);
-      audioEl.onended = () => {
-        audioEl = null; isPaused = false; isProcessing = false;
-        mediaSource = null; sourceBuffer = null;
-        setStatus('ready', 'ready');
-        resolve();
-      };
-
-      mediaSource.addEventListener('sourceopen', async () => {
-        try {
-          sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
-          sourceBuffer.mode = 'sequence';
-
-          const reader = response.body.getReader();
-          let started = false;
-          let prebuffer = [];
-          let prebufferSize = 0;
-          const PREBUFFER_TARGET = 6000; // ~6KB before starting playback
-
-          const appendChunk = async (chunk) => {
-            if (sourceBuffer.updating) {
-              await new Promise(r => sourceBuffer.addEventListener('updateend', r, { once: true }));
-            }
-            try { sourceBuffer.appendBuffer(chunk); } catch(e) {}
-          };
-
-          while (true) {
-            const { done, value } = await reader.read();
-
-            if (done) {
-              // flush any remaining prebuffer
-              if (!started && prebuffer.length > 0) {
-                for (const chunk of prebuffer) await appendChunk(chunk);
-                setStatus('speaking', 'speaking');
-                audioEl.play().catch(() => {});
-              }
-              // wait for buffer to drain then end stream
-              if (sourceBuffer.updating) {
-                await new Promise(r => sourceBuffer.addEventListener('updateend', r, { once: true }));
-              }
-              if (mediaSource && mediaSource.readyState === 'open') {
-                mediaSource.endOfStream();
-              }
-              break;
-            }
-
-            if (!started) {
-              prebuffer.push(value);
-              prebufferSize += value.byteLength;
-              if (prebufferSize >= PREBUFFER_TARGET) {
-                // flush prebuffer and start playing
-                for (const chunk of prebuffer) await appendChunk(chunk);
-                prebuffer = [];
-                started = true;
-                setStatus('speaking', 'speaking');
-                audioEl.play().catch(() => {});
-              }
-            } else {
-              await appendChunk(value);
-            }
-          }
-        } catch(e) {
-          console.error('MediaSource error:', e);
-          resolve();
-        }
-      });
-    });
-  }
-
-
-
-  // ── typewriter ───────────────────────────────────────────────
   function typewrite(text, el) {
     el.innerHTML = ''; el.className = 'ptext vansh';
     let i = 0;
-    const speed = 42  ;
+    const speed = 42;
     const tick = setInterval(() => {
       if (i < text.length) {
         el.innerHTML = text.slice(0, ++i) + '<span class="cur"></span>';
@@ -332,7 +246,6 @@
     }, speed);
   }
 
-  // ── main pipeline ────────────────────────────────────────────
   async function pipeline() {
     try {
       // 1 — transcribe
@@ -346,7 +259,7 @@
       transcriptEl.className = 'ptext you';
       setStatus('thinking', 'thinking');
 
-      // 2 — get LLM response
+      // 2 — get response
       const rres = await fetch('/respond', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript })
@@ -354,32 +267,49 @@
       const { response } = await rres.json();
       if (!response) { setStatus('ready', 'ready'); isProcessing = false; return; }
 
-      // 3 — start typewriter + streaming audio simultaneously
+      // 3 — typewrite and fetch audio independently
       typewrite(response, responseEl);
 
-      streamAbort = new AbortController();
-      const speakRes = await fetch('/speak', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: response }),
-        signal: streamAbort.signal
-      });
+      const ELEVEN_KEY = 'sk_cb4ea63b8167c2ee3cdec00073b72fd7551c0d2a1c796e31';
+      const ELEVEN_VOICE = 'FKObLhH6o41WAg46hyug';
 
-      if (!speakRes.ok) throw new Error('TTS failed');
-      await playStream(speakRes);
+      fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}`, {
+        method: 'POST',
+        headers: { 'xi-api-key': ELEVEN_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: response,
+          model_id: 'eleven_turbo_v2',
+          voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 1.05 }
+        })
+      })
+        .then(r => r.blob())
+        .then(audioBlob => {
+          const url = URL.createObjectURL(audioBlob);
+          currentAudio = new Audio(url);
+          isPaused = false;
+          setStatus('speaking', 'speaking');
+          currentAudio.onended = () => {
+            currentAudio = null; isPaused = false; isProcessing = false;
+            URL.revokeObjectURL(url);
+            setStatus('ready', 'ready');
+          };
+          currentAudio.play();
+        })
+        .catch(e => {
+          console.error(e);
+          setStatus('ready', 'ready');
+          isProcessing = false;
+        });
 
     } catch (e) {
-      if (e.name === 'AbortError') return;
       console.error(e);
       setStatus('ready', 'ready');
-      isProcessing = false; audioEl = null;
+      isProcessing = false; currentAudio = null;
     }
   }
 
-  // ── reset ────────────────────────────────────────────────────
   async function resetAll() {
-    if (streamAbort) { streamAbort.abort(); streamAbort = null; }
-    if (audioEl) { audioEl.pause(); audioEl.src = ''; audioEl = null; }
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
     isProcessing = false; isRecording = false; isPaused = false;
     await fetch('/reset', { method: 'POST' });
     transcriptEl.textContent = '—'; transcriptEl.className = 'ptext';
@@ -387,15 +317,14 @@
     setStatus('ready', 'ready');
   }
 
-  // ── keyboard ─────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
     if (e.code === 'Space' && !e.repeat) {
       e.preventDefault();
-      if (audioEl) { interrupt(); return; }
+      if (currentAudio) { interrupt(); return; }
       if (!isRecording && !isProcessing) startRecording();
     }
-    if (e.code === 'KeyP' && audioEl && !isPaused) pauseAudio();
-    if (e.code === 'KeyR' && audioEl && isPaused)  resumeAudio();
+    if (e.code === 'KeyP' && currentAudio && !isPaused) pauseAudio();
+    if (e.code === 'KeyR' && currentAudio && isPaused) resumeAudio();
   });
   document.addEventListener('keyup', e => {
     if (e.code === 'Space') { e.preventDefault(); if (isRecording) stopRecording(); }
