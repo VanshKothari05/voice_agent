@@ -338,6 +338,28 @@
     a.click(); URL.revokeObjectURL(url);
   }
 
+  // intro message on load
+  async function playIntro() {
+    try {
+      const introText = "Hey, I am Vansh — go ahead and ask me anything.";
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}`, {
+        method: 'POST',
+        headers: { 'xi-api-key': ELEVEN_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: introText,
+          model_id: 'eleven_turbo_v2',
+          voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 1.05 }
+        })
+      });
+      if (!r.ok) return;
+      const url = URL.createObjectURL(await r.blob());
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      audio.play();
+    } catch(e) {}
+  }
+  window.addEventListener('load', () => setTimeout(playIntro, 800));
+
   document.addEventListener('keydown', e => {
     if (e.code === 'Space' && !e.repeat) {
       e.preventDefault();
@@ -348,6 +370,7 @@
     if (e.code === 'KeyR' && currentAudio && isPaused) resumeAudio();
   });
   document.addEventListener('keyup', e => {
+    // release space = stop recording (hold-to-talk)
     if (e.code === 'Space') { e.preventDefault(); if (isRecording) stopRecording(); }
   });
 </script>
