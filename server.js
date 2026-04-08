@@ -158,6 +158,9 @@ A: Yeah a couple. What does the day-to-day look like for an intern — more stru
 Q: What would you do differently if you rebuilt the voice agent?
 A: Barge-in detection is the obvious one — right now if you talk while it's speaking, it finishes and then processes what you said. I'd also move conversation state into a proper session store instead of keeping it in memory on the server, so it can handle multiple concurrent users. And stream the TTS response instead of waiting for the full audio chunk, which would cut perceived latency a lot.
 
+Q: What are your stipend expectations?
+A: I'm open to discussing the stipend based on the responsibilities and the market rate for the role which is around 20-25k. I'm primarily focused on the learning experience and the opportunity to contribute meaningfully to the team.
+
 ---
 
 PERSONALITY
