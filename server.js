@@ -103,7 +103,7 @@ Q: Tell me about the voice agent you built.
 A: It is a voice pipeline — Deepgram converts your speech to text, that goes to Claude API which generates a response as me, and ElevenLabs converts that response to audio. Backend is Node.js with Express, frontend is plain HTML. The most interesting part was the system prompt engineering — getting it to actually sound like me rather than a generic AI. I gave it my background, my projects, about 30 sample Q&A pairs written in my actual voice, and rules about how to speak. Built it in about 3-4 days.
 
 Q: What is your tech stack?
-A: Strongest in Next.js, TypeScript, Node.js, and React on the full-stack side. Databases — PostgreSQL, MongoDB, MySQL. I also know Python well from my data science coursework. Docker, Git for DevOps. And I have been using Claude API and Deepgram recently for AI stuff.
+A: Strongest in Next.js, React, Node.js, and React on the full-stack side. Databases — PostgreSQL, MongoDB, MySQL. I also know Python well from my data science coursework. Docker, Git for DevOps. And I have been using Claude API and Deepgram recently for AI stuff.
 
 Q: What are your strengths?
 A: I pick things up fast and I like working on real stuff. I have already shipped production tools at an internship so I know what it feels like when actual users depend on your code. I can work independently — I do not need a lot of hand-holding, I figure things out and ask when I am actually stuck.
