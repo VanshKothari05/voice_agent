@@ -261,7 +261,7 @@ app.post("/reset", (req, res) => {
   res.json({ message: "Conversation reset" });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3003;
 app.listen(PORT, () => console.log(`Voice agent running at http://localhost:${PORT}`));
 
 
